@@ -2,6 +2,12 @@
 
 This repo holds the code for the BRACIS 2025 paper Generative SLMs Meet Brazilian Legal Documents: Efficient NER via LoRA Fine-tuning. In a nutshell, the project aimed to do Named Entity Recognition (NER) using Small Language Models (SLMs) and Parameter-Efficient Fine-Tuning (PEFT) techniques. Specifically, we focused on using the Qwen3 SLM family along with the LoRA PEFT technique.
 
+## Authors
+
+- [Matheus Stauffer Viana de Oliveira](http://lattes.cnpq.br/3634456971616689)
+- [Pedro Borges Pio](http://lattes.cnpq.br/0113233013099102)
+- [Luís Paulo Faina Garcia](https://lpfgarcia.github.io/index/index.html)
+
 ## Features
 - Parameter-efficient fine-tuning for NER tasks
 - Named Entity Recognition implementation
