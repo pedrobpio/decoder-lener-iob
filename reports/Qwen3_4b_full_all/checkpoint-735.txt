@@ -1,0 +1,19 @@
+📊 Classification Report (BIO Format):
+========================================
+                precision    recall  f1-score   support
+
+JURISPRUDENCIA       0.49      0.68      0.57       207
+    LEGISLACAO       0.62      0.75      0.68       397
+         LOCAL       0.54      0.61      0.58       109
+   ORGANIZACAO       0.56      0.57      0.57       561
+        PESSOA       0.77      0.81      0.79       310
+         TEMPO       0.81      0.61      0.70       234
+
+     micro avg       0.62      0.67      0.65      1818
+     macro avg       0.63      0.67      0.65      1818
+  weighted avg       0.63      0.67      0.65      1818
+
+
+========================================
+🔁 F1 Score: 0.6453488372093024
+========================================
