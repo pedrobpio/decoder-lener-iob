@@ -4,3 +4,4 @@ peft
 tqdm
 scikit-learn
 seqeval
+nltk
