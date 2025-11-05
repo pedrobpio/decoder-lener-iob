@@ -16,29 +16,38 @@ class RestrictedVocabLogitsProcessor(LogitsProcessor):
         return masked_scores
 
 def get_allowed_token_ids(text: str, tokenizer, extra_tokens=None) -> Set[int]:
-    input_token_ids = set(tokenizer(text, add_special_tokens=False)["input_ids"])
+    input_token_ids = set(tokenizer(text, add_special_tokens=True)["input_ids"])
     extra_token_ids = set()
     if extra_tokens:
         for token in extra_tokens:
-            extra_token_ids.update(tokenizer(token, add_special_tokens=False)["input_ids"])
+            extra_token_ids.update(tokenizer(token, add_special_tokens=True)["input_ids"])
     return input_token_ids.union(extra_token_ids)
 
 def predict_entities_batch(
     texts: List[str],
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizer,
-    extra_tokens: List[str] = ["PESSOA", "ORGANIZACAO", "LOCAL", "TEMPO", "LEGISLACAO", "JURISPRUDENCIA", ":", ";", "\n"]
+    extra_tokens: List[str] = ["PESSOA", "ORGANIZACAO", "LOCAL", "TEMPO", "LEGISLACAO", "JURISPRUDENCIA", ":", ";", "\n", '-', '<|im_end|>']
 ) -> List[str]:
+    
     device = model.device
     context_prompt = (
-        """Você é um especialista jurídico responsável por identificar entidades de LEGISLACAO em textos.        
-As entidades de LEGISLACAO se referem a Atos de Lei, como leis, decretos, portarias, etc.
+        """Você é um especialista jurídico responsável por identificar entidades em textos.        
+As entidades que você deve identificar são:
+
+- ORGANIZAÇÃO: Refere-se a entidades que representam organizações, como empresas, instituições governamentais, ONGs, etc.
+- PESSOA: Designa entidades que são nomes de pessoas físicas.
+- TEMPO: Marca entidades que expressam informações temporais, como datas, horários, períodos, etc.
+- LOCAL: Indica entidades que representam lugares geográficos, como cidades, países, estados, endereços, etc.
+- LEGISLAÇÃO: Identifica entidades que correspondem a Atos de Lei, como leis, decretos, portarias, etc.
+- JURISPRUDÊNCIA: Assinala entidades que se referem a decisões relativas a casos legais.      
+
 segue o texto\n"""
 #             """Você é um especialista jurídico responsável por identificar entidades de JURISPRUDENCIA em textos.        
 # As entidades de JURISPRUDENCIA se referem a decisões relativas a casos legais anteriores.
 # segue o texto\n"""
         )
-    prompts = [f"{context_prompt}Texto: {text}\nEntidades:" for text in texts]
+    prompts = [f"{context_prompt}{text}\nResposta:\n" for text in texts]
     tokenized = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(device)
     input_ids = tokenized["input_ids"]
 

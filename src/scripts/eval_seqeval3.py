@@ -73,14 +73,14 @@ segue o texto\n"""
 chosen_context = context[context_index]
 
 print(f'context -> {chosen_context}')
-
+# mudar
 def build_prompt(example, chosen_context):
     context_prompt = (
         chosen_context
         )
     sentence = " ".join(example["tokens"])
     return f"{context_prompt}Texto: {sentence}\nEntidades:"
-
+# mudar
 def extract_entities(text, valid_labels):
     """
     Extracts entities from text based on a list of valid labels.

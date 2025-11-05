@@ -20,7 +20,7 @@ class LenerDataset:
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
         logger.info(f"Dataset loaded with splits: {list(self.dataset.keys())}")
-        self.dataset = self.format_dataset()
+        self.dataset = self.format_dataset_IOB()
         return self.dataset
 
     def format_dataset(self):
@@ -85,7 +85,7 @@ segue o texto\n"""
                 full_text,
                 truncation=True,
                 padding="max_length",
-                max_length=512
+                max_length=10
             )
             labels = tokenized["input_ids"].copy()
             labels = [token if token != self.tokenizer.pad_token_id else -100 for token in labels]
@@ -151,14 +151,14 @@ segue o texto\n"""
             tag_name = self.tag_id_to_name.get(tag_id, "O")
             target_text += f"{token}:{tag_name}\n"
         full_text = input_text + "\n" + target_text + self.tokenizer.eos_token
-        logger.warning(f"fulltext: {full_text}")
-
+        # logger.warning(f"fulltext: {full_text}")
+        # logger.info("Starting dataset mapping...")
         try:
             tokenized = self.tokenizer(
                 full_text,
                 truncation=True,
                 padding="max_length",
-                max_length=512
+                max_length=1024
             )
             labels = tokenized["input_ids"].copy()
             labels = [token if token != self.tokenizer.pad_token_id else -100 for token in labels]
@@ -196,6 +196,7 @@ segue o texto\n"""
         formatted_dataset = self.dataset.map(
             self.format_example_IOB,
             batched=False,
+            load_from_cache_file=False,
             # remove_columns=original_columns
         )
         logger.info("Dataset mapping finished.")
