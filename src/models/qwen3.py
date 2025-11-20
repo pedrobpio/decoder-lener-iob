@@ -20,7 +20,10 @@ class Qwen3:
 
     def load_tokenizer(self):
         tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        tokenizer.pad_token = tokenizer.eos_token
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = "<|endoftext|>"
+            tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids("<|endoftext|>")
+
 
         # Right padding for autoregressive LMs
         tokenizer.padding_side = "right"
@@ -30,7 +33,8 @@ class Qwen3:
         model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
             attn_implementation="eager",  # important to compatibility with ROCm accelerators
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            # torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            torch_dtype=torch.bfloat16,
         )
         
         model.config.use_cache = False # Disable cache for PEFT training

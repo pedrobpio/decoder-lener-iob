@@ -20,7 +20,7 @@ class LenerDataset:
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
         logger.info(f"Dataset loaded with splits: {list(self.dataset.keys())}")
-        self.dataset = self.format_dataset_IOB()
+        self.dataset = self.format_dataset()
         return self.dataset
 
     def format_dataset(self):
@@ -50,6 +50,7 @@ class LenerDataset:
         formatted_dataset = self.dataset.map(
             self.format_example,
             batched=False,
+            load_from_cache_file=False,
             # remove_columns=original_columns
         )
         logger.info("Dataset mapping finished.")
@@ -77,7 +78,7 @@ segue o texto\n"""
         sentence = " ".join(example["tokens"])
         entities = self.extract_entities(example["tokens"], example["ner_tags"])
         input_text = f"{context_prompt}Texto: {sentence}"
-        target_text = "Entidades: " + "; ".join(entities) if entities else "Entidades: Nenhuma"
+        target_text = "Resposta:\n " + "; ".join(entities) if entities else "Resposta:\n Nenhuma"
         full_text = input_text + "\n" + target_text + self.tokenizer.eos_token
 
         try:
@@ -85,10 +86,19 @@ segue o texto\n"""
                 full_text,
                 truncation=True,
                 padding="max_length",
-                max_length=10
+                max_length=1024
             )
             labels = tokenized["input_ids"].copy()
-            labels = [token if token != self.tokenizer.pad_token_id else -100 for token in labels]
+            
+            # Find the last occurrence of the EOS token
+            eos_indices = [i for i, token_id in enumerate(labels) if token_id == self.tokenizer.eos_token_id]
+            if eos_indices:
+                last_eos_idx = eos_indices[-1]
+                # Mask only the padding tokens that appear *after* the last EOS token
+                for i in range(last_eos_idx + 1, len(labels)):
+                    # if labels[i] == self.tokenizer.pad_token_id:
+                    labels[i] = -100
+
             tokenized["labels"] = labels
         except Exception as e:
             logger.error(f"Tokenization failed for text: '{full_text[:100]}...'. Error: {e}")
