@@ -32,8 +32,9 @@ class Qwen3:
     def load_model(self):
         model = AutoModelForCausalLM.from_pretrained(
             self.model_name,
-            attn_implementation="eager",  # important to compatibility with ROCm accelerators
+            # attn_implementation="eager",  # important to compatibility with ROCm accelerators
             # torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            attn_implementation="flash_attention_2",
             torch_dtype=torch.bfloat16,
         )
         
