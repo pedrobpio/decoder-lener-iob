@@ -12,6 +12,7 @@ class LenerDataset:
         self.dataset_name = dataset_name
         self.dataset: DatasetDict | None = None
         self.tag_id_to_name = {}
+        self.name_to_tag_id = {}
 
     def load_dataset(self):
         logger.info(f"Loading dataset: {self.dataset_name}")
@@ -181,6 +182,11 @@ segue o texto\n"""
                     labels[i] = -100
             
             tokenized["labels"] = labels
+
+            prompt = tokenized["input_ids"].copy()
+            resposta_start_idx = self.find_resposta_start(prompt)
+            cropped_input_ids = self.build_final_input(prompt, resposta_start_idx)
+            tokenized["prompt"] = cropped_input_ids
         except Exception as e:
             logger.error(f"Tokenization failed for text: '{full_text[:100]}...'. Error: {e}")
             return {}
@@ -205,6 +211,7 @@ segue o texto\n"""
         try:
             ner_feature = self.dataset[first_split_key].features["ner_tags"]
             self.tag_id_to_name = {i: name for i, name in enumerate(ner_feature.feature.names)}
+            self.name_to_tag_id = {name: i for i, name in enumerate(ner_feature.feature.names)}
             logger.info(f"NER tag mapping created: {self.tag_id_to_name}")
         except (KeyError, AttributeError) as e:
             logger.error(f"Failed to get NER tag feature names from dataset split '{first_split_key}'. Error: {e}")
@@ -221,3 +228,32 @@ segue o texto\n"""
         logger.info(f"Columns after mapping: {formatted_dataset[first_split_key].column_names}")
 
         return formatted_dataset
+
+    def build_final_input(self, original_inputs, resposta_start_idx):
+        """
+        Faz o corte dos input_ids a partir do índice de início da resposta.
+        
+        original_inputs: data[idx]["input_ids"]
+        resposta_start_idx: saída da função find_resposta_start
+        """
+        # Cortamos os input_ids a partir do índice encontrado
+        cropped_input_ids = original_inputs[:resposta_start_idx]
+        
+        return cropped_input_ids
+
+    def find_resposta_start(self, input_ids):
+        """
+        Encontra o índice do token logo após "Resposta:\n" na sequência de input_ids.
+        
+        input_ids: Lista de IDs de tokens, data[idx]["input_ids"]
+        """
+        try:
+            # retorna o índice do token após "Resposta:\n"
+            for idx, _ in enumerate(input_ids):
+                if input_ids[idx] == 1061 and input_ids[idx+1] == 38531 and input_ids[idx+2] == 510:
+                    return idx + 3
+        except:
+            # Resposta:\n não encontrado, retornamos última posição de token vista
+            return idx
+    
+    
