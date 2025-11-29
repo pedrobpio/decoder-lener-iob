@@ -28,7 +28,7 @@ class LoraAdapter():
         preset configuration, otherwise it will use the custom parameters passed in lora_configs.
         """
         self.model = model
-        self.presets = {
+        self.presetsV0 = {
             "default": {
                 "r": 8,
                 "lora_alpha": 16,
@@ -109,6 +109,100 @@ class LoraAdapter():
                 "lora_dropout": 0.1,
                 "bias": "none",
             }
+        }
+        self.presets = {
+            "attention": {
+                "r": 32,
+                "lora_alpha": 64,
+                "target_modules": ["q_proj", "v_proj"],
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "full_attention": {
+                "r": 32,
+                "lora_alpha": 64,
+                "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj"],
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "ffn": {
+                "r": 32,
+                "lora_alpha": 64,
+                "target_modules": ["mlp.up_proj", "mlp.down_proj"],
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "full_attention_plus_ffn": {
+                "r": 32,
+                "lora_alpha": 64,
+                "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "mlp.up_proj", "mlp.down_proj"],
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "low_rank_16": {
+                "r": 8,
+                "lora_alpha": 16,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "low_rank_32": {
+                "r": 8,
+                "lora_alpha": 32,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "low_rank_64": {
+                "r": 8,
+                "lora_alpha": 64,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "medium_rank_16": {
+                "r": 16,
+                "lora_alpha": 16,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "medium_rank_32": {
+                "r": 16,
+                "lora_alpha": 32,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "medium_rank_64": {
+                "r": 16,
+                "lora_alpha": 64,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "high_rank_16": {
+                "r": 32,
+                "lora_alpha": 16,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "high_rank_32": {
+                "r": 32,
+                "lora_alpha": 32,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            "high_rank_64": {
+                "r": 32,
+                "lora_alpha": 64,
+                "target_modules": "all-linear",
+                "lora_dropout": 0.1,
+                "bias": "none",
+            },
+            
         }
         self.lora_preset = lora_preset
         if self.lora_preset is None:
