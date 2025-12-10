@@ -21,7 +21,7 @@ class LenerDataset:
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
         logger.info(f"Dataset loaded with splits: {list(self.dataset.keys())}")
-        self.dataset = self.format_dataset_IOB()
+        self.dataset = self.format_dataset_GRPO()
         return self.dataset
 
     def format_dataset(self):
@@ -256,4 +256,47 @@ segue o texto\n"""
             # Resposta:\n não encontrado, retornamos última posição de token vista
             return idx
     
-    
+    def format_dataset_GRPO(self):
+        """
+        Formats dataset specifically for TRL's GRPOTrainer.
+        Returns columns: ['prompt', 'ground_truth']
+        """
+        if self.dataset is None:
+            self.load_dataset()
+
+        def format_row_grpo(example):
+            # 1. Build Prompt (Same as before, but stop before the answer)
+            context_prompt = (
+            """Você é um especialista jurídico responsável por identificar entidades em textos.        
+As entidades que você deve identificar são:
+
+- ORGANIZAÇÃO: Refere-se a entidades que representam organizações, como empresas, instituições governamentais, ONGs, etc.
+- PESSOA: Designa entidades que são nomes de pessoas físicas.
+- TEMPO: Marca entidades que expressam informações temporais, como datas, horários, períodos, etc.
+- LOCAL: Indica entidades que representam lugares geográficos, como cidades, países, estados, endereços, etc.
+- LEGISLAÇÃO: Identifica entidades que correspondem a Atos de Lei, como leis, decretos, portarias, etc.
+- JURISPRUDÊNCIA: Assinala entidades que se referem a decisões relativas a casos legais.      
+
+segue o texto\n"""
+        )
+            sentence = " ".join(example["tokens"])
+            input_text = f"{context_prompt}Texto: {sentence}\nResposta:\n"
+            
+            # 2. Build Ground Truth String (for the reward function to parse)
+            # using your existing logic
+            entities = self.extract_entities(example["tokens"], example["ner_tags"])
+            target_text = "; ".join(entities) if entities else "Nenhuma"
+
+            return {
+                "prompt": input_text,
+                "ground_truth": target_text # We pass this to the reward function later
+            }
+
+        first_split_key = list(self.dataset.keys())[0]
+        
+        # Get NER feature mappings first
+        ner_feature = self.dataset[first_split_key].features["ner_tags"]
+        self.tag_id_to_name = {i: name for i, name in enumerate(ner_feature.feature.names)}
+
+        formatted_dataset = self.dataset.map(format_row_grpo, batched=False)
+        return formatted_dataset
