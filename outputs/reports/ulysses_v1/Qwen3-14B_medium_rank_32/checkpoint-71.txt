@@ -1,0 +1,16 @@
+📊 Classification Report (BIO Format):
+              precision    recall  f1-score   support
+
+        DATA       0.99      0.96      0.97        72
+      EVENTO       0.50      0.20      0.29         5
+  FUNDAMENTO       0.56      0.42      0.48       107
+       LOCAL       0.96      0.44      0.60       145
+ ORGANIZACAO       0.78      0.57      0.66        81
+      PESSOA       0.86      0.67      0.75       114
+PRODUTODELEI       0.64      0.35      0.45        46
+
+   micro avg       0.81      0.56      0.66       570
+   macro avg       0.75      0.51      0.60       570
+weighted avg       0.81      0.56      0.65       570
+
+🔁 F1 Score: 0.659043659043659
