@@ -1,5 +1,5 @@
 transformers
-transformers
+datasets
 peft
 tqdm
 scikit-learn
