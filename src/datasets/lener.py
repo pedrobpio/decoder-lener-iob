@@ -5,7 +5,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class LenerDataset:
-    def __init__(self, dataset_name: str = "peluz/lener_br", tokenizer=None):
+    def __init__(self, dataset_name: str = "eduagarcia/PortuLex_benchmark", tokenizer=None):
         if tokenizer is None:
             raise ValueError("Tokenizer must be provided.")
         self.tokenizer = tokenizer
@@ -16,7 +16,8 @@ class LenerDataset:
 
     def load_dataset(self):
         logger.info(f"Loading dataset: {self.dataset_name}")
-        loaded_data = load_dataset(self.dataset_name, trust_remote_code=True)
+        # loaded_data = load_dataset(self.dataset_name, trust_remote_code=True)
+        loaded_data = load_dataset(self.dataset_name,'LeNER-Br')
         if not isinstance(loaded_data, DatasetDict):
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
@@ -169,7 +170,7 @@ segue o texto\n"""
                 full_text,
                 truncation=True,
                 padding="max_length",
-                max_length=2048
+                max_length=1536
             )
             labels = tokenized["input_ids"].copy()
             

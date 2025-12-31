@@ -1,8 +1,13 @@
 transformers
-datasets
+transformers
 peft
 tqdm
 scikit-learn
 seqeval
 nltk
-trl
+trl==0.19.1
+ninja
+cmake
+wheel 
+packaging 
+pybind11
