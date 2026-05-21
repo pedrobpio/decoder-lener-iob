@@ -14,15 +14,31 @@ class LenerDataset:
         self.tag_id_to_name = {}
         self.name_to_tag_id = {}
 
-    def load_dataset(self):
+    def load_dataset(self, format: str = "grpo"):
+        """
+        Load and format the dataset.
+
+        format options:
+          "grpo" — returns {'prompt', 'ground_truth'} columns for GRPOTrainer
+          "iob"  — returns {'input_ids', 'attention_mask', 'labels', 'prompt'} for SFT (IOB format)
+          "raw"  — returns the unformatted DatasetDict; caller chooses format
+        """
         logger.info(f"Loading dataset: {self.dataset_name}")
-        # loaded_data = load_dataset(self.dataset_name, trust_remote_code=True)
-        loaded_data = load_dataset(self.dataset_name,'LeNER-Br')
+        loaded_data = load_dataset(self.dataset_name, 'LeNER-Br')
         if not isinstance(loaded_data, DatasetDict):
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
         logger.info(f"Dataset loaded with splits: {list(self.dataset.keys())}")
-        self.dataset = self.format_dataset_GRPO()
+
+        if format == "grpo":
+            self.dataset = self.format_dataset_GRPO()
+        elif format == "iob":
+            self.dataset = self.format_dataset_IOB()
+        elif format == "raw":
+            pass
+        else:
+            raise ValueError(f"Unknown format '{format}'. Choose from: 'grpo', 'iob', 'raw'.")
+
         return self.dataset
 
     def format_dataset(self):
@@ -284,9 +300,12 @@ segue o texto\n"""
             input_text = f"{context_prompt}Texto: {sentence}\nResposta:\n"
             
             # 2. Build Ground Truth String (for the reward function to parse)
-            # using your existing logic
             entities = self.extract_entities(example["tokens"], example["ner_tags"])
-            target_text = "; ".join(entities) if entities else "Nenhuma"
+            # Deduplicate while preserving order; extract_entities emits one entry
+            # per occurrence, so repeated entities (e.g. same org mentioned twice)
+            # would inflate the ground truth string without adding information.
+            entities_deduped = list(dict.fromkeys(entities))
+            target_text = "; ".join(entities_deduped) if entities_deduped else "Nenhuma"
 
             return {
                 "prompt": input_text,
