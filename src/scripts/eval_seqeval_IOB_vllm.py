@@ -1,175 +1,283 @@
+"""
+Evaluation script for models trained in IOB (token:TAG per line) format.
+
+Uses vLLM for fast batched inference. Supports LoRA adapter checkpoints.
+
+Usage:
+    python src/scripts/eval_seqeval_IOB_vllm.py \\
+        <checkpoint_path> \\
+        <base_model_name> \\
+        <gpu_id> \\
+        [--dataset lener|ulysses] \\
+        [--split validation|test] \\
+        [--output_dir ./outputs/reports] \\
+        [--hf_home /path/to/hf_cache]
+
+Examples:
+    # LeNER-BR validation set, LoRA checkpoint
+    python src/scripts/eval_seqeval_IOB_vllm.py \\
+        lener_br/Qwen3-8B_high_rank_64/checkpoint-2450 \\
+        Qwen/Qwen3-8B \\
+        0 \\
+        --dataset lener \\
+        --split validation
+
+    # UlyssesNER test set
+    python src/scripts/eval_seqeval_IOB_vllm.py \\
+        ulysses_v1/Qwen3-14B_high_rank_64/checkpoint-710 \\
+        Qwen/Qwen3-14B \\
+        0 \\
+        --dataset ulysses \\
+        --split test
+"""
+
 import sys
 import os
-import argparse
-from pathlib import Path 
-import pickle
 import json
+import argparse
+from pathlib import Path
+
 import torch
 from transformers import AutoTokenizer
-from src.datasets.lener import LenerDataset
-from src.datasets.ulysses import UlyssesDataset
 from seqeval.metrics import classification_report, f1_score
 from vllm import LLM, SamplingParams
-from vllm.lora.request import LoRARequest 
+from vllm.lora.request import LoRARequest
 
-# Set HF Home globally so it applies to all processes
-os.environ['HF_HOME'] = '/work1/lgarcia/pedrobpio/HF_files'
+LENER_ALLOWED_BIO = [
+    "O",
+    "B-PESSOA", "I-PESSOA",
+    "B-ORGANIZACAO", "I-ORGANIZACAO",
+    "B-LOCAL", "I-LOCAL",
+    "B-TEMPO", "I-TEMPO",
+    "B-LEGISLACAO", "I-LEGISLACAO",
+    "B-JURISPRUDENCIA", "I-JURISPRUDENCIA",
+]
+
+ULYSSES_ALLOWED_BIO = [
+    "O",
+    "B-DATA", "I-DATA",
+    "B-EVENTO", "I-EVENTO",
+    "B-FUNDAMENTO", "I-FUNDAMENTO",
+    "B-LOCAL", "I-LOCAL",
+    "B-ORGANIZACAO", "I-ORGANIZACAO",
+    "B-PESSOA", "I-PESSOA",
+    "B-PRODUTODELEI", "I-PRODUTODELEI",
+]
+
 
 def parse_llm_output(llm_text):
+    """Parses IOB lines 'token:TAG' into a flat list of tag strings."""
     pred_tags = []
     if "Resposta:\n" in llm_text:
         llm_text = llm_text.split("Resposta:\n")[-1]
-    
-    lines = llm_text.strip().split('\n')
-    for line in lines:
+    for line in llm_text.strip().split("\n"):
         line = line.strip()
-        if not line: continue
-        if ':' in line:
-            parts = line.rsplit(':', 1)
-            tag = parts[-1].strip()
+        if not line:
+            continue
+        if ":" in line:
+            tag = line.rsplit(":", 1)[-1].strip()
             pred_tags.append(tag)
         else:
-            pred_tags.append('O')
+            pred_tags.append("O")
     return pred_tags
+
 
 def align_predictions(true_len, pred_tags):
     if len(pred_tags) < true_len:
-        pred_tags += ['O'] * (true_len - len(pred_tags))
+        pred_tags += ["O"] * (true_len - len(pred_tags))
     elif len(pred_tags) > true_len:
         pred_tags = pred_tags[:true_len]
     return pred_tags
 
+
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('model_info', nargs='+', help='model_path model_name gpu_id batch_size')
+    parser = argparse.ArgumentParser(
+        description="Evaluate an IOB-format model with vLLM.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "checkpoint_path",
+        help=(
+            "Checkpoint path relative to ./outputs/checkpoints/. "
+            "Can be a LoRA adapter directory or a full model directory."
+        ),
+    )
+    parser.add_argument("base_model_name", help="HuggingFace model ID (e.g. Qwen/Qwen3-8B).")
+    parser.add_argument("gpu_id", help="GPU index to use (e.g. 0).")
+    parser.add_argument(
+        "--dataset",
+        choices=["lener", "ulysses"],
+        default="lener",
+        help="Dataset to evaluate on.",
+    )
+    parser.add_argument(
+        "--split",
+        choices=["validation", "test"],
+        default="validation",
+        help="Dataset split to evaluate.",
+    )
+    parser.add_argument(
+        "--output_dir",
+        default="./outputs/reports",
+        help="Directory where the report .txt file will be saved.",
+    )
+    parser.add_argument(
+        "--hf_home",
+        default=None,
+        help="Optional path to override HF_HOME (useful on shared clusters).",
+    )
+    parser.add_argument(
+        "--max_tokens",
+        type=int,
+        default=1024,
+        help="Max new tokens to generate per prompt.",
+    )
+
     args = parser.parse_args()
 
-    # --- 1. Fix Path to Absolute ---
-    relative_path = f"notebooks/outputs/checkpoints/{args.model_info[0]}"
-    MODEL_PATH = str(Path(relative_path).resolve())
+    if args.hf_home:
+        os.environ["HF_HOME"] = args.hf_home
 
-    MODEL_NAME = args.model_info[1]
-    GPU_ID = args.model_info[2]
+    os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu_id
 
-    print(f"📍 Absolute Model Path: {MODEL_PATH}")
-    print(f"Target GPU: {GPU_ID}")
+    # ------------------------------------------------------------------
+    # Resolve checkpoint path and detect LoRA
+    # ------------------------------------------------------------------
+    checkpoint_abs = str(Path(f"./outputs/checkpoints/{args.checkpoint_path}").resolve())
+    is_lora = os.path.exists(os.path.join(checkpoint_abs, "adapter_config.json"))
 
-    # Set GPU Visibility
-    os.environ["CUDA_VISIBLE_DEVICES"] = GPU_ID
-
-    # --- 2. Check if this is a LoRA Adapter ---
-    is_lora = False
-    base_model_path = MODEL_PATH 
-
-    if os.path.exists(os.path.join(MODEL_PATH, "adapter_config.json")):
-        print("⚠️ Detected LoRA Adapter checkpoint (not a full model).")
-        is_lora = True
-        
-        # Read the base model name from the adapter config
-        with open(os.path.join(MODEL_PATH, "adapter_config.json"), 'r') as f:
+    if is_lora:
+        print(f"Detected LoRA adapter checkpoint: {checkpoint_abs}")
+        with open(os.path.join(checkpoint_abs, "adapter_config.json")) as f:
             adapter_conf = json.load(f)
-            base_model_path = adapter_conf.get("base_model_name_or_path")
-        
-        print(f"   -> Loading Base Model: {base_model_path}")
-        print(f"   -> Will apply LoRA from: {MODEL_PATH}")
+        base_model_path = adapter_conf.get("base_model_name_or_path", args.base_model_name)
+        print(f"  Base model: {base_model_path}")
+    else:
+        base_model_path = checkpoint_abs
+        print(f"Full model checkpoint: {checkpoint_abs}")
 
-    # --- Load Tokenizer & Dataset ---
-    tokenizer_path = base_model_path if is_lora else MODEL_PATH
+    tokenizer_path = base_model_path
+
+    # ------------------------------------------------------------------
+    # Dataset and tag config
+    # ------------------------------------------------------------------
+    if args.dataset == "lener":
+        from src.datasets.lener import LenerDataset
+        allowed_bio = LENER_ALLOWED_BIO
+        DatasetClass = LenerDataset
+    else:
+        from src.datasets.ulysses import UlyssesDataset
+        allowed_bio = ULYSSES_ALLOWED_BIO
+        DatasetClass = UlyssesDataset
+
+    # ------------------------------------------------------------------
+    # Tokenizer and dataset
+    # ------------------------------------------------------------------
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    # Ensure PAD != EOS so generation termination is reliable
+    tokenizer.pad_token = "<|endoftext|>"
+    tokenizer.pad_token_id = tokenizer.convert_tokens_to_ids("<|endoftext|>")
 
-    # l = LenerDataset(tokenizer=tokenizer)
-    # pickle_data = 'lener_iob.pkl'
+    l = DatasetClass(tokenizer=tokenizer)
+    data = l.load_dataset(format="iob")
 
-    l = UlyssesDataset(tokenizer=tokenizer)
-    pickle_data = 'ulysses_iob.pkl'
+    split_data = data[args.split]
+    print(f"Loaded {args.dataset}/{args.split}: {len(split_data)} examples")
 
-    print("Loading Data...")
-    try:
-        with open(pickle_data, 'rb') as file:
-            l = pickle.load(file)
-            data = l.dataset
-            print('loaded data successfully')
-    except FileNotFoundError:
-        data = l.load_dataset()
-        with open(pickle_data, 'wb') as file:
-            pickle.dump(l, file)
+    # The 'prompt' field in IOB format is a list of pre-tokenized input IDs
+    raw_prompts = split_data["prompt"]
 
-    # --- vLLM Initialization ---
+    # ------------------------------------------------------------------
+    # vLLM initialization
+    # ------------------------------------------------------------------
     print("Initializing vLLM...")
-
     llm = LLM(
-        model=base_model_path, 
+        model=base_model_path,
         tokenizer=tokenizer_path,
         dtype="auto",
-        gpu_memory_utilization=0.90, 
+        gpu_memory_utilization=0.90,
         tensor_parallel_size=1,
         trust_remote_code=True,
-        enable_lora=is_lora, 
-        max_lora_rank=64 if is_lora else 16 
+        enable_lora=is_lora,
+        max_lora_rank=64 if is_lora else 16,
     )
 
     sampling_params = SamplingParams(
         seed=42,
         temperature=0.0,
-        max_tokens=1024,
+        max_tokens=args.max_tokens,
         repetition_penalty=1.0,
-        stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id else []
+        stop_token_ids=[tokenizer.eos_token_id] if tokenizer.eos_token_id else [],
     )
 
-    # --- Generation ---
-    # raw_prompts = data['validation']['prompt']
-    raw_prompts = data['test']['prompt']
-    print(f"Starting generation for {len(raw_prompts)} prompts...")
-    formatted_prompts = [
-    {"prompt_token_ids": tokens} for tokens in raw_prompts
-]
+    # ------------------------------------------------------------------
+    # Generate (pass pre-tokenized prompt IDs directly to vLLM)
+    # ------------------------------------------------------------------
+    formatted_prompts = [{"prompt_token_ids": tokens} for tokens in raw_prompts]
+    print(f"Generating for {len(formatted_prompts)} prompts...")
+
     if is_lora:
         outputs = llm.generate(
-            prompts=formatted_prompts, 
+            prompts=formatted_prompts,
             sampling_params=sampling_params,
-            lora_request=LoRARequest("lener_adapter", 1, MODEL_PATH)
+            lora_request=LoRARequest("ner_adapter", 1, checkpoint_abs),
         )
     else:
-        outputs = llm.generate(
-            prompts=formatted_prompts, 
-            sampling_params=sampling_params
-        )
+        outputs = llm.generate(prompts=formatted_prompts, sampling_params=sampling_params)
 
-    decoded_texts = [output.outputs[0].text for output in outputs]
+    decoded_texts = [out.outputs[0].text for out in outputs]
     print(f"Generated {len(decoded_texts)} sequences.")
 
-    # --- Post-Processing & Metrics ---
-    print("Calculating Metrics...")
+    # ------------------------------------------------------------------
+    # Post-process: IOB lines → aligned tag sequences
+    # ------------------------------------------------------------------
+    ner_feature = data["train"].features["ner_tags"]
+    tag_id_to_name = {i: name for i, name in enumerate(ner_feature.feature.names)}
 
-    preds = [parse_llm_output(output) for output in decoded_texts]
-    # true_tags = data['validation']['ner_tags']
-    true_tags = data['test']['ner_tags']
+    true_tags_raw = split_data["ner_tags"]
 
-    preds = [align_predictions(len(true_tags[idx]), pred) for idx, pred in enumerate(preds)]
+    preds = [parse_llm_output(text) for text in decoded_texts]
+    preds = [align_predictions(len(true_tags_raw[i]), pred) for i, pred in enumerate(preds)]
 
-    # allowed_tags = ["O", "B-PESSOA", "I-PESSOA", "B-ORGANIZACAO","I-ORGANIZACAO", "B-LOCAL", "I-LOCAL", "B-TEMPO", "I-TEMPO", "B-LEGISLACAO", "I-LEGISLACAO", "B-JURISPRUDENCIA", "I-JURISPRUDENCIA"]
-    allowed_tags = ['O', 'B-DATA', 'I-DATA', 'B-EVENTO', 'I-EVENTO', 'B-FUNDAMENTO', 'I-FUNDAMENTO', 'B-LOCAL', 'I-LOCAL', 'B-ORGANIZACAO', 'I-ORGANIZACAO', 'B-PESSOA', 'I-PESSOA', 'B-PRODUTODELEI', 'I-PRODUTODELEI']
-    clean_preds = [['O' if tag not in allowed_tags else tag for tag in seq] for seq in preds]
-    y_true = [[l.tag_id_to_name[tag] for tag in true_tag] for true_tag in true_tags]
+    clean_preds = [
+        ["O" if tag not in allowed_bio else tag for tag in seq]
+        for seq in preds
+    ]
+    y_true = [[tag_id_to_name[t] for t in seq] for seq in true_tags_raw]
 
+    # ------------------------------------------------------------------
+    # Metrics
+    # ------------------------------------------------------------------
     report = classification_report(y_true, clean_preds)
+    score = f1_score(y_true, clean_preds)
+    print("\nClassification Report:\n")
     print(report)
+    print(f"F1 Score: {score:.4f}")
 
-    # --- Save to File ---
-    # output_filename = f"./outputs/reports/{args.model_info[0].split('/')[-1]}_(1).txt" 
-    output_filename = f"./outputs/reports/{args.model_info[0]}_test.txt"
-    output_filename_results = f"./outputs/reports/{args.model_info[0]}_test_results.txt"
-    output_path = Path(output_filename)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(output_filename_results, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(decoded_texts))
+    # ------------------------------------------------------------------
+    # Save report
+    # ------------------------------------------------------------------
+    safe_path = args.checkpoint_path.replace("/", "_")
+    output_filename = Path(args.output_dir) / f"{safe_path}_{args.split}.txt"
+    output_filename.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_filename, 'w', encoding='utf-8') as f:
-        f.write("📊 Classification Report (BIO Format):\n")
+    with open(output_filename, "w", encoding="utf-8") as f:
+        f.write(f"Model: {args.checkpoint_path}\n")
+        f.write(f"Dataset: {args.dataset} / {args.split}\n")
+        f.write(f"Format: IOB\n")
+        f.write("=" * 50 + "\n")
+        f.write("Classification Report:\n")
         f.write(report)
-        f.write(f"\n🔁 F1 Score: {f1_score(y_true, clean_preds)}\n") 
-    print(f"\n✅ Metrics successfully saved to: {output_filename}")
+        f.write(f"\nF1 Score: {score:.4f}\n")
+
+    # Also save raw decoded outputs for inspection
+    output_results = Path(args.output_dir) / f"{safe_path}_{args.split}_outputs.txt"
+    with open(output_results, "w", encoding="utf-8") as f:
+        f.write("\n---\n".join(decoded_texts))
+
+    print(f"\nReport saved to: {output_filename}")
+    print(f"Raw outputs saved to: {output_results}")
+
 
 if __name__ == "__main__":
     main()
