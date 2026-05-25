@@ -5,7 +5,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class LenerDataset:
-    def __init__(self, dataset_name: str = "eduagarcia/PortuLex_benchmark", tokenizer=None):
+    def __init__(self, dataset_name: str = "peluz/lener_br", tokenizer=None):
         if tokenizer is None:
             raise ValueError("Tokenizer must be provided.")
         self.tokenizer = tokenizer
@@ -22,9 +22,17 @@ class LenerDataset:
           "grpo" — returns {'prompt', 'ground_truth'} columns for GRPOTrainer
           "iob"  — returns {'input_ids', 'attention_mask', 'labels', 'prompt'} for SFT (IOB format)
           "raw"  — returns the unformatted DatasetDict; caller chooses format
+
+        Default dataset: peluz/lener_br (no config name required).
+        If using eduagarcia/PortuLex_benchmark, pass dataset_name and a config
+        argument by subclassing or extending this loader.
         """
         logger.info(f"Loading dataset: {self.dataset_name}")
-        loaded_data = load_dataset(self.dataset_name, 'LeNER-Br')
+        # peluz/lener_br has no sub-config; PortuLex_benchmark uses 'LeNER-Br'.
+        if self.dataset_name == "peluz/lener_br":
+            loaded_data = load_dataset(self.dataset_name)
+        else:
+            loaded_data = load_dataset(self.dataset_name, 'LeNER-Br')
         if not isinstance(loaded_data, DatasetDict):
             raise TypeError(f"Expected load_dataset to return a DatasetDict, but got {type(loaded_data)}")
         self.dataset = loaded_data
